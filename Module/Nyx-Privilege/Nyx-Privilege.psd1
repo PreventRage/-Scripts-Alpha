@@ -1,11 +1,11 @@
 #
-# Module manifest for module 'Grendel-Scripts-1'
+# Module manifest for module 'Nyx-Privilege'
 #
 
 @{
 
 # Script module or binary module file associated with this manifest.
-# RootModule = ''
+RootModule = '.\Nyx-Privilege.psm1'
 
 # Version number of this module.
 ModuleVersion = '0.0.1'
@@ -14,10 +14,13 @@ ModuleVersion = '0.0.1'
 # CompatiblePSEditions = @()
 
 # ID used to uniquely identify this module
-GUID = '8940f516-918d-4491-b827-2af38ba1f445'
+GUID = 'dd9afe7a-ab27-458b-948f-937626c71ad8'
 
 # Author of this module
 Author = 'PreventRage'
+
+# Company or vendor of this module
+#CompanyName = 'Unknown'
 
 # Copyright statement for this module
 Copyright = '(c) PreventRage. All rights reserved.'
@@ -47,7 +50,9 @@ Copyright = '(c) PreventRage. All rights reserved.'
 # RequiredModules = @()
 
 # Assemblies that must be loaded prior to importing this module
-# RequiredAssemblies = @()
+RequiredAssemblies = @(
+#    'ManagePrivileges.dll'
+)
 
 # Script files (.ps1) that are run in the caller's environment prior to importing this module.
 # ScriptsToProcess = @()
@@ -62,7 +67,10 @@ Copyright = '(c) PreventRage. All rights reserved.'
 # NestedModules = @()
 
 # Functions to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no functions to export.
-FunctionsToExport = @()
+FunctionsToExport = @(
+    'Test-Privilege',
+    'Set-Privilege'
+)
 
 # Cmdlets to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no cmdlets to export.
 CmdletsToExport = @()
@@ -81,8 +89,7 @@ AliasesToExport = @()
 
 # List of all files packaged with this module
 FileList = @(
-    'Grendel-Scripts-1.psd1',
-    'Grendel-Scripts-1.psm1'
+#    "../../Assemblies/ManagePrivileges/bin/net6.0/ManagePrivileges.dll"
 )
 
 # Private data to pass to the module specified in RootModule/ModuleToProcess. This may also contain a PSData hashtable with additional module metadata used by PowerShell.
