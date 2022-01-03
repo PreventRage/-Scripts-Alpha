@@ -1,7 +1,9 @@
 # Nyx-Privilege
 
 $ManagePrivileges_Code = @'
-public class ManagePrivileges
+using System;
+using System.Runtime.InteropServices;
+public class ManagePrivileges2
 {
     [DllImport("kernel32.dll", ExactSpelling = true, SetLastError = true)]
     internal static extern /*BOOL*/ bool CloseHandle(
@@ -17,7 +19,7 @@ public class ManagePrivileges
     
     [DllImport("advapi32.dll", SetLastError = true)]
     internal static extern /*BOOL*/ bool LookupPrivilegeValue(
-        /*[in, optional] LPCWSTR*/ string? SystemName,
+        /*[in, optional] LPCWSTR*/ string/*?*/ SystemName,
         /*[in] LPCWSTR*/ string Name,
         /*[out] PLUID*/ ref long Luid
     );
@@ -31,13 +33,14 @@ public class ManagePrivileges
     }
 
     [DllImport("advapi32.dll", ExactSpelling = true, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
     internal static extern bool AdjustTokenPrivileges(
         /*HANDLE*/ IntPtr TokenHandle,
-        /*BOOL*/ bool DisableAllPrivileges,
+        /*BOOL*/ [MarshalAs(UnmanagedType.Bool)]bool DisableAllPrivileges,
         /*PTOKEN_PRIVILEGES*/ ref TOKEN_PRIVILEGES__RoomForOne NewState,
-        /*DWORD*/ int BufferLength,
-        /*PTOKEN_PRIVILEGES*/ IntPtr PreviousState,
-        /*PDWORD*/ IntPtr ReturnLength
+        /*DWORD*/ UInt32 PreviousState_RoomInBytes,
+        /*PTOKEN_PRIVILEGES*/ ref TOKEN_PRIVILEGES__RoomForOne PreviousState,
+        /*PDWORD*/ out UInt32 PreviousState_SizeInBytes
     );
 
     [StructLayout(LayoutKind.Sequential, Pack = 1)]
@@ -134,34 +137,37 @@ LReturn:
         IntPtr hProcess = new IntPtr(processHandle);
         IntPtr hToken = IntPtr.Zero;
 
-        TOKEN_PRIVILEGES__RoomForOne tp;
-        tp.PrivilegeCount = 1;
-        tp.Luid = 0;
-        tp.Attributes = enable ? SE_PRIVILEGE_ENABLED : SE_PRIVILEGE_DISABLED;
+        TOKEN_PRIVILEGES__RoomForOne tpNew;
+        tpNew.PrivilegeCount = 1;
+        tpNew.Luid = 0; // we'll look up the proper value later
+        tpNew.Attributes = enable ? SE_PRIVILEGE_ENABLED : SE_PRIVILEGE_DISABLED;
+
+        var tpOld = new TOKEN_PRIVILEGES__RoomForOne();
+        uint tpOld_Size;
 
         // May now goto LReturn on failure
 
         if (!OpenProcessToken(
-            hProcess,           // ProcessHandle
+            hProcess,                       // ProcessHandle
             TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, // DesiredAccess
-            ref hToken          // TokenHandle
+            ref hToken                      // TokenHandle
         )) {
             goto LReturn;
         }
         if (!LookupPrivilegeValue(
-            null,               // SystemName (null means local)
-            privilege,          // Name
-            ref tp.Luid         // Luid
+            null,                           // SystemName (null means local)
+            privilege,                      // Name
+            ref tpNew.Luid                  // Luid
         )) {
             goto LReturn;
         }
         if (!AdjustTokenPrivileges(
-            hToken,             // TokenHandle
-            false,              // DisableAllPrivileges
-            ref tp,             // NewState
-            0,                  // BufferLength
-            IntPtr.Zero,        // PreviousState
-            IntPtr.Zero         // ReturnLength
+            hToken,                         // TokenHandle
+            false,                          // DisableAllPrivileges
+            ref tpNew,                      // NewState
+            (uint)Marshal.SizeOf(tpOld),    // PreviousState_RoomInBytes
+            ref tpOld,                      // PreviousState
+            out tpOld_Size                  // PreviousState_SizeInBytes
         )) {
             goto LReturn;
         }
@@ -388,6 +394,11 @@ function ProcessCLSID {
 
 $IsPrivileged = Test-Privilege SeTakeOwnershipPrivilege
 $IsPrivileged
+Set-Privilege SeTakeOwnershipPrivilege $True
+$IsPrivileged = Test-Privilege SeTakeOwnershipPrivilege
+$IsPrivileged
+
+
 
 #ProcessCLSIDs
 
