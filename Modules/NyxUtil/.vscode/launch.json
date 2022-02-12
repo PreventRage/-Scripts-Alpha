@@ -5,6 +5,12 @@
     "version": "0.2.0",
     "configurations": [
         {
+            "name": "PS-Attach Interactive Session Runspace",
+            "type": "PowerShell",
+            "request": "attach",
+            "processId": "current"
+        },
+        {
             "name": "PS-LaunchThisFile",
             "type": "PowerShell",
             "request": "launch",

@@ -1,188 +1,29 @@
-# Nyx-Privilege
+# NyxUtil
 
-$ManagePrivileges_Code = @'
-using System;
-using System.Runtime.InteropServices;
-public class ManagePrivileges2
-{
-    [DllImport("kernel32.dll", ExactSpelling = true, SetLastError = true)]
-    internal static extern /*BOOL*/ bool CloseHandle(
-        /*[in] HANDLE*/ IntPtr Handle
-    );
-
-    [DllImport("advapi32.dll", ExactSpelling = true, SetLastError = true)]
-    internal static extern /*BOOL*/ bool OpenProcessToken(
-        /*[in] HANDLE*/ IntPtr ProcessHandle,
-        /*[in] DWORD*/ int DesiredAccess,
-        /*[out] PHANDLE*/ ref IntPtr TokenHandle
-    );
-    
-    [DllImport("advapi32.dll", SetLastError = true)]
-    internal static extern /*BOOL*/ bool LookupPrivilegeValue(
-        /*[in, optional] LPCWSTR*/ string/*?*/ SystemName,
-        /*[in] LPCWSTR*/ string Name,
-        /*[out] PLUID*/ ref long Luid
-    );
-
-    [StructLayout(LayoutKind.Sequential, Pack = 1)]
-    internal struct TOKEN_PRIVILEGES__RoomForOne {
-        /*DWORD*/ public int PrivilegeCount;
-        /*LUID_AND_ATTRIBUTES Privileges[ANYSIZE_ARRAY] ... */
-        /*LUID*/ public long Luid;
-        /*DWORD*/ public int Attributes;
-    }
-
-    [DllImport("advapi32.dll", ExactSpelling = true, SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    internal static extern bool AdjustTokenPrivileges(
-        /*HANDLE*/ IntPtr TokenHandle,
-        /*BOOL*/ [MarshalAs(UnmanagedType.Bool)]bool DisableAllPrivileges,
-        /*PTOKEN_PRIVILEGES*/ ref TOKEN_PRIVILEGES__RoomForOne NewState,
-        /*DWORD*/ UInt32 PreviousState_RoomInBytes,
-        /*PTOKEN_PRIVILEGES*/ ref TOKEN_PRIVILEGES__RoomForOne PreviousState,
-        /*PDWORD*/ out UInt32 PreviousState_SizeInBytes
-    );
-
-    [StructLayout(LayoutKind.Sequential, Pack = 1)]
-    internal struct PRIVILEGE_SET__RoomForOne {
-        /*DWORD*/ public int PrivilegeCount;
-        /*DWORD*/ public int Control;
-        /*LUID_AND_ATTRIBUTES Privileges[ANYSIZE_ARRAY] ... */
-        /*LUID*/ public long Luid;
-        /*DWORD*/ public int Attributes;
-    }
-
-    [DllImport("advapi32.dll", ExactSpelling = true, SetLastError = true)]
-    internal static extern /*BOOL*/ bool PrivilegeCheck(
-        /*HANDLE*/ IntPtr TokenHandle,
-        /*PPRIVILEGE_SET*/ ref PRIVILEGE_SET__RoomForOne RequiredPrivileges,
-        /*LPBOOL*/ ref bool pfResult
-      );    
-
-    internal const int SE_PRIVILEGE_ENABLED = 0x00000002;
-    internal const int SE_PRIVILEGE_DISABLED = 0x00000000;
-    internal const int TOKEN_QUERY = 0x00000008;
-    internal const int TOKEN_ADJUST_PRIVILEGES = 0x00000020;
-    internal const int PRIVILEGE_SET_ALL_NECESSARY = 0x00000001;
-
-    public static bool CheckPrivilege(
-        long processHandle,
-        string privilege,
-        out bool isEnabled)
-    {
-        bool succeeded = false;
-        isEnabled = false; 
-
-        IntPtr hProcess = new IntPtr(processHandle);
-        IntPtr hToken = IntPtr.Zero;
-
-        PRIVILEGE_SET__RoomForOne ps;
-        ps.PrivilegeCount = 1;
-        ps.Control = PRIVILEGE_SET_ALL_NECESSARY;
-        ps.Luid = 0;
-        ps.Attributes = 0;
-
-        // May now goto LReturn on failure
-
-        if (!OpenProcessToken(
-            hProcess,           // ProcessHandle
-            TOKEN_QUERY,        // DesiredAccess
-            ref hToken          // TokenHandle
-        )) {
-            goto LReturn;
+function Assert {
+    Param(
+        [Parameter(
+            Mandatory = $false,
+            ValueFromPipeline = $true,
+            ValueFromRemainingArguments = $true
+        )]
+        $Value = $false,
+        [Parameter(
+            Mandatory=$false
+        )]
+        [string]$Msg = "Failed"
+    )
+    foreach ($x in $Value) {
+        if (-not $x) {
+            Write-Error $Msg
+            return
         }
-        if (!LookupPrivilegeValue(
-            null,               // SystemName (null means local)
-            privilege,          // Name
-            ref ps.Luid         // Luid
-        )) {
-            goto LReturn;
-        }
-        if (!PrivilegeCheck(
-            hToken,             // TokenHandle
-            ref ps,             // RequiredPrivileges
-            ref isEnabled       // pfResult
-        )) {
-            goto LReturn;
-        }
-        succeeded = true;
-LReturn:
-        if (hToken != IntPtr.Zero) {
-            CloseHandle(hToken);
-        }
-        return succeeded;
-    }
-
-    public static bool EnablePrivilege(
-        long processHandle,
-        string privilege
-    ) {
-        return EnableOrDisablePrivilege(processHandle, privilege, true);
-    }
-
-    public static bool DisablePrivilege(
-        long processHandle,
-        string privilege
-    ) {
-        return EnableOrDisablePrivilege(processHandle, privilege, false);
-    }
-
-    public static bool EnableOrDisablePrivilege(
-        long processHandle, // experiment with using IntPtr instead
-        string privilege,
-        bool enable
-    ) {
-        bool succeeded = false;
-
-        IntPtr hProcess = new IntPtr(processHandle);
-        IntPtr hToken = IntPtr.Zero;
-
-        TOKEN_PRIVILEGES__RoomForOne tpNew;
-        tpNew.PrivilegeCount = 1;
-        tpNew.Luid = 0; // we'll look up the proper value later
-        tpNew.Attributes = enable ? SE_PRIVILEGE_ENABLED : SE_PRIVILEGE_DISABLED;
-
-        var tpOld = new TOKEN_PRIVILEGES__RoomForOne();
-        uint tpOld_Size;
-
-        // May now goto LReturn on failure
-
-        if (!OpenProcessToken(
-            hProcess,                       // ProcessHandle
-            TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, // DesiredAccess
-            ref hToken                      // TokenHandle
-        )) {
-            goto LReturn;
-        }
-        if (!LookupPrivilegeValue(
-            null,                           // SystemName (null means local)
-            privilege,                      // Name
-            ref tpNew.Luid                  // Luid
-        )) {
-            goto LReturn;
-        }
-        if (!AdjustTokenPrivileges(
-            hToken,                         // TokenHandle
-            false,                          // DisableAllPrivileges
-            ref tpNew,                      // NewState
-            (uint)Marshal.SizeOf(tpOld),    // PreviousState_RoomInBytes
-            ref tpOld,                      // PreviousState
-            out tpOld_Size                  // PreviousState_SizeInBytes
-        )) {
-            goto LReturn;
-        }
-        succeeded = true;
-LReturn:
-        if (hToken != IntPtr.Zero) {
-            CloseHandle(hToken);
-        }
-        return succeeded;
     }
 }
-'@
-$ManagePrivileges_Type = Add-Type -TypeDefinition $ManagePrivileges_Code -PassThru
-$ManagePrivileges_Class = $ManagePrivileges_Type[0]
-        
+
+$CurrentUserName = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
+$CurrentUser = New-Object System.Security.Principal.NTAccount($CurrentUserName)
+      
 enum Privilege {
     SeAssignPrimaryTokenPrivilege
     SeAuditPrivilege
@@ -221,27 +62,42 @@ enum Privilege {
     SeUnsolicitedInputPrivilege
 }
 
-function ProcessHandleFromArgs {
-    Param(
-        [Parameter(Mandatory=$false)]
-        $ProcessId,
-        [Parameter(Mandatory=$false)]
-        $ProcessHandle
-    )
+[Flags()]
+enum TokenAccess {
+    TokenAdjustDefault = [NyxNUtil+Native]::TOKEN_ADJUST_DEFAULT # Required to change the default owner, primary group, or DACL of an access token.
+    TokenAdjustGroups = [NyxNUtil+Native]::TOKEN_ADJUST_GROUPS # Required to adjust the attributes of the groups in an access token.
+    TokenAdjustPrivileges = [NyxNUtil+Native]::TOKEN_ADJUST_PRIVILEGES # Required to enable or disable the privileges in an access token.
+    TokenAdjustSessionId = [NyxNUtil+Native]::TOKEN_ADJUST_SESSIONID # Required to adjust the session ID of an access token. The SE_TCB_NAME privilege is required.
+    TokenAssignPrimary = [NyxNUtil+Native]::TOKEN_ASSIGN_PRIMARY # Required to attach a primary token to a process. The SE_ASSIGNPRIMARYTOKEN_NAME privilege is also required to accomplish this task.
+    TokenDuplicate = [NyxNUtil+Native]::TOKEN_DUPLICATE # Required to duplicate an access token.
+    TokenExecute = [NyxNUtil+Native]::TOKEN_EXECUTE # Same as STANDARD_RIGHTS_EXECUTE.
+    TokenImpersonate = [NyxNUtil+Native]::TOKEN_IMPERSONATE # Required to attach an impersonation access token to a process.
+    TokenQuery = [NyxNUtil+Native]::TOKEN_QUERY # Required to query an access token.
+    TokenQuerySource = [NyxNUtil+Native]::TOKEN_QUERY_SOURCE # Required to query the source of an access token.
+    TokenRead = [NyxNUtil+Native]::TOKEN_READ # Combines STANDARD_RIGHTS_READ and TOKEN_QUERY.
+    TokenWrite = [NyxNUtil+Native]::TOKEN_WRITE # Combines STANDARD_RIGHTS_WRITE, TOKEN_ADJUST_PRIVILEGES, TOKEN_ADJUST_GROUPS, and TOKEN_ADJUST_DEFAULT.
+    TokenAllAccess = [NyxNUtil+Native]::TOKEN_ALL_ACCESS # Combines all possible access rights for a token.
+}
+
+function SetProcessHandleAndId() {
     if ($null -ne $ProcessHandle) {
+        $Id = [NyxNUtil]::GetProcessId($ProcessHandle)
         if ($null -ne $ProcessId) {
-            Write-Error 'Specify at most one of ProcessId and ProcessHandle'
-            return $null
+            if ($Id -ne $ProcessId) {
+                Write-Error 'ProcessId does not match ProcessHandle'
+                return $null
+            }
         } else {
-            return $ProcessHandle
+            Set-Variable ProcessId $Id -Scope 1
         }
     } else {
         if ($null -eq $ProcessId) {
-            $ProcessId = $pid
+            Set-Variable ProcessId $pid -Scope 1
         }
-        return (Get-Process -id $ProcessId).Handle
+        Set-Variable ProcessHandle (Get-Process -id $ProcessId).Handle -Scope 1
     }
 }
+
 function Test-Privilege {
     Param(
         # The privilege to test.
@@ -255,9 +111,31 @@ function Test-Privilege {
         [Parameter(Mandatory=$false)]
         $ProcessHandle
     )
-    $ProcessHandle = ProcessHandleFromArgs -ProcessHandle $ProcessHandle -ProcessId $ProcessId
+    SetProcessHandleAndId
+    # $ProcessHandle = ProcessHandleFromArgs @PSBoundParameters
+
+    [Int64]$TokenHandle = 0
+    try {
+        if (![NyxNUtil]::OpenProcessToken(
+            $ProcessHandle,
+            [NyxNUtil+TokenAccess]::TokenQuery,
+            [ref]$TokenHandle))
+        {
+            throw "Unable to OpenProcessToken"
+        }
+        $TokenHandle
+    }
+    finally {
+
+    }
+
+    return
+
     $Enabled = $false;
-    if (!$ManagePrivileges_Class::CheckPrivilege($ProcessHandle, $Privilege, [ref][bool]$Enabled)) {
+
+
+
+    if (![NyxNUtil]::PrivilegeCheck($ProcessHandle, $Privilege, [ref][bool]$Enabled)) {
         Write-Error "Unable to check privilege [$Privilege]"
     }
     return $Enabled;
@@ -279,9 +157,9 @@ function Set-Privilege {
         [Parameter(Mandatory=$false)]
         $ProcessHandle
     )
-
-    $ProcessHandle = ProcessHandleFromArgs -ProcessHandle $ProcessHandle -ProcessId $ProcessId
-    if (!$ManagePrivileges_Class::EnableOrDisablePrivilege($ProcessHandle, $Privilege, $Enable)) {
+    SetProcessHandleAndId
+    # $ProcessHandle = ProcessHandleFromArgs @PSBoundParameters
+    if (![NyxNUtil]::EnableOrDisablePrivilege($ProcessHandle, $Privilege, $Enable)) {
         Write-Error "Failed to $($Enable ? "enable" : "disable") privilege [$Privilege]"
     }
 }
@@ -308,8 +186,6 @@ $AdditionalKeys = @(
    'HKEY_LOCAL_MACHINE\SOFTWARE\WOW6432Node\Microsoft\Windows NT\CurrentVersion\ProfileNotification\TDL'
 )
 
-$CurrentUserName = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
-$CurrentUser = New-Object System.Security.Principal.NTAccount($CurrentUserName)
 
 function ProcessCLSIDs {
     foreach ($l in $CLSIDLocations) {
@@ -392,11 +268,11 @@ function ProcessCLSID {
     Remove-Item -Path $Path -Recurse
 }
 
-$IsPrivileged = Test-Privilege SeTakeOwnershipPrivilege
-$IsPrivileged
-Set-Privilege SeTakeOwnershipPrivilege $True
-$IsPrivileged = Test-Privilege SeTakeOwnershipPrivilege
-$IsPrivileged
+# $IsPrivileged = Test-Privilege SeTakeOwnershipPrivilege
+# $IsPrivileged
+# Set-Privilege SeTakeOwnershipPrivilege $True
+# $IsPrivileged = Test-Privilege SeTakeOwnershipPrivilege
+# $IsPrivileged
 
 
 
@@ -431,3 +307,126 @@ $IsPrivileged
 #Computer\HKEY_LOCAL_MACHINE\SOFTWARE\WOW6432Node\Classes\CLSID\{B31118B2-1F49-48E5-B6F5-BC21CAEC56FB}
 #Computer\HKEY_LOCAL_MACHINE\SOFTWARE\WOW6432Node\Classes\CLSID\{CBC04AF1-25C7-4A4D-BB78-28284403510F}
 
+
+
+
+#     public static bool CheckPrivilege(
+#         Int64 processHandle,
+#         string privilege,
+#         out bool isEnabled) {
+#         bool succeeded = false;
+#         isEnabled = false;
+
+#         IntPtr hProcess = new IntPtr(processHandle);
+#         IntPtr hToken = IntPtr.Zero;
+
+#         PRIVILEGE_SET_RoomForOne ps;
+#         ps.PrivilegeCount = 1;
+#         ps.Control = PRIVILEGE_SET_ALL_NECESSARY;
+#         ps.Luid = 0;
+#         ps.Attributes = 0;
+
+#         // May now goto LReturn on failure
+
+#         if (!OpenProcessToken(
+#             hProcess,           // ProcessHandle
+#             TOKEN_QUERY,        // DesiredAccess
+#             ref hToken          // TokenHandle
+#         )) {
+#             goto LReturn;
+#         }
+#         if (!LookupPrivilegeValue(
+#             null,               // SystemName (null means local)
+#             privilege,          // Name
+#             ref ps.Luid         // Luid
+#         )) {
+#             goto LReturn;
+#         }
+#         if (!PrivilegeCheck(
+#             hToken,             // TokenHandle
+#             ref ps,             // RequiredPrivileges
+#             out isEnabled       // pfResult
+#         )) {
+#             goto LReturn;
+#         }
+#         succeeded = true;
+#     LReturn:
+#         if (hToken != IntPtr.Zero) {
+#             CloseHandle(hToken);
+#         }
+#         return succeeded;
+#     }
+
+#     public static bool EnablePrivilege(
+#         long processHandle,
+#         string privilege
+#     ) {
+#         return EnableOrDisablePrivilege(processHandle, privilege, true);
+#     }
+
+#     public static bool DisablePrivilege(
+#         long processHandle,
+#         string privilege
+#     ) {
+#         return EnableOrDisablePrivilege(processHandle, privilege, false);
+#     }
+
+#     public static bool EnableOrDisablePrivilege(
+#         long processHandle, // experiment with using IntPtr instead
+#         string privilege,
+#         bool enable
+#     ) {
+#         bool succeeded = false;
+
+#         IntPtr hProcess = new IntPtr(processHandle);
+#         IntPtr hToken = IntPtr.Zero;
+
+#         TOKEN_PRIVILEGES__RoomForOne tpNew;
+#         tpNew.PrivilegeCount = 1;
+#         tpNew.Luid = 0; // we'll look up the proper value later
+#         tpNew.Attributes = enable ? SE_PRIVILEGE_ENABLED : SE_PRIVILEGE_DISABLED;
+
+#         var tpOld = new TOKEN_PRIVILEGES__RoomForOne();
+#         Int32 tpOld_Room = Marshal.SizeOf(tpOld);
+#         Int32 tpOld_Size;
+
+#         // May now goto LReturn on failure
+
+#         if (!OpenProcessToken(
+#             hProcess,                   // ProcessHandle
+#             TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, // DesiredAccess
+#             ref hToken                  // TokenHandle
+#         )) {
+#             goto LReturn;
+#         }
+#         if (!LookupPrivilegeValue(
+#             null,                       // SystemName (null means local)
+#             privilege,                  // Name
+#             ref tpNew.Luid              // Luid
+#         )) {
+#             goto LReturn;
+#         }
+#         if (!AdjustTokenPrivileges(
+#             hToken,                     // TokenHandle
+#             false,                      // DisableAllPrivileges
+#             ref tpNew,                  // NewState
+#             tpOld_Room,                 // PreviousState_RoomInBytes
+#             ref tpOld,                  // PreviousState
+#             out tpOld_Size              // PreviousState_SizeInBytes
+#         )) {
+#             goto LReturn;
+#         }
+#         if (tpOld_Size != tpOld_Room) {
+#             // It's not clear this is an error, but I'm suspicious
+#             goto LReturn; 
+#         }
+#         succeeded = true;
+#     LReturn:
+#         if (hToken != IntPtr.Zero) {
+#             CloseHandle(hToken);
+#         }
+#         return succeeded;
+#     }
+
+# */
+# }

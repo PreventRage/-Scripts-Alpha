@@ -5,7 +5,7 @@
 @{
 
 # Script module or binary module file associated with this manifest.
-RootModule = '.\Nyx-Privilege.psm1'
+RootModule = '.\NyxUtil.psm1'
 
 # Version number of this module.
 ModuleVersion = '0.0.1'
@@ -55,7 +55,9 @@ RequiredAssemblies = @(
 )
 
 # Script files (.ps1) that are run in the caller's environment prior to importing this module.
-# ScriptsToProcess = @()
+ScriptsToProcess = @(
+#    './NyxNUtil.ps1'
+)
 
 # Type files (.ps1xml) to be loaded when importing this module
 # TypesToProcess = @()
@@ -89,7 +91,8 @@ AliasesToExport = @()
 
 # List of all files packaged with this module
 FileList = @(
-#    "../../Assemblies/ManagePrivileges/bin/net6.0/ManagePrivileges.dll"
+    '.\NyxUtil.ps1',
+    '.\NyxNUtil.ps1'
 )
 
 # Private data to pass to the module specified in RootModule/ModuleToProcess. This may also contain a PSData hashtable with additional module metadata used by PowerShell.

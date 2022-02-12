@@ -1,5 +1,5 @@
 #
-# Module manifest for module 'Nyx-Scripts-1'
+# Module manifest for module 'NyxScripts1'
 #
 
 @{
@@ -23,7 +23,7 @@ Author = 'PreventRage'
 Copyright = '(c) PreventRage. All rights reserved.'
 
 # Description of the functionality provided by this module
-# Description = ''
+Description = 'All of my scripts bundled into one module.'
 
 # Minimum version of the PowerShell engine required by this module
 # PowerShellVersion = ''
@@ -60,6 +60,13 @@ Copyright = '(c) PreventRage. All rights reserved.'
 
 # Modules to import as nested modules of the module specified in RootModule/ModuleToProcess
 # NestedModules = @()
+NestedModules = @(
+    @{
+        ModuleName='..\NyxUtil\NyxUtil.psd1';
+        ModuleVersion='0.0.1';
+        GUID='dd9afe7a-ab27-458b-948f-937626c71ad8'
+    }
+)
 
 # Functions to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no functions to export.
 FunctionsToExport = @()
@@ -77,12 +84,12 @@ AliasesToExport = @()
 # DscResourcesToExport = @()
 
 # List of all modules packaged with this module
-# ModuleList = @()
+ModuleList = @(
+    "..\NyxUtil\NyxUtil.psd1"
+)
 
 # List of all files packaged with this module
 FileList = @(
-    'Grendel-Scripts-1.psd1',
-    'Grendel-Scripts-1.psm1'
 )
 
 # Private data to pass to the module specified in RootModule/ModuleToProcess. This may also contain a PSData hashtable with additional module metadata used by PowerShell.
