@@ -1,5 +1,5 @@
 #
-# Module manifest for module 'NyxScripts1'
+# Module manifest for module 'NyxScripts'
 #
 
 @{
@@ -23,7 +23,7 @@ Author = 'PreventRage'
 Copyright = '(c) PreventRage. All rights reserved.'
 
 # Description of the functionality provided by this module
-Description = 'All of my scripts bundled into one module.'
+Description = 'A collection of scripts and modules in one parent module.'
 
 # Minimum version of the PowerShell engine required by this module
 # PowerShellVersion = ''
@@ -59,17 +59,19 @@ Description = 'All of my scripts bundled into one module.'
 # FormatsToProcess = @()
 
 # Modules to import as nested modules of the module specified in RootModule/ModuleToProcess
-# NestedModules = @()
 NestedModules = @(
     @{
-        ModuleName='..\NyxUtil\NyxUtil.psd1';
+        ModuleName='.\NyxUtil\NyxUtil.psd1';
         ModuleVersion='0.0.1';
         GUID='dd9afe7a-ab27-458b-948f-937626c71ad8'
     }
 )
 
 # Functions to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no functions to export.
-FunctionsToExport = @()
+FunctionsToExport = @(
+    'Test-Privilege',
+    'Set-Privilege'
+)
 
 # Cmdlets to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no cmdlets to export.
 CmdletsToExport = @()
@@ -85,11 +87,12 @@ AliasesToExport = @()
 
 # List of all modules packaged with this module
 ModuleList = @(
-    "..\NyxUtil\NyxUtil.psd1"
+    ".\NyxUtil\NyxUtil.psd1"
 )
 
 # List of all files packaged with this module
 FileList = @(
+#    ".\NyxUtil\NyxUtil.psd1"
 )
 
 # Private data to pass to the module specified in RootModule/ModuleToProcess. This may also contain a PSData hashtable with additional module metadata used by PowerShell.
@@ -113,7 +116,7 @@ PrivateData = @{
         # ReleaseNotes = ''
 
         # Prerelease string of this module
-        # Prerelease = ''
+        # Prerelease = 'alpha'
 
         # Flag to indicate whether the module requires explicit user acceptance for install/update/save
         # RequireLicenseAcceptance = $false
