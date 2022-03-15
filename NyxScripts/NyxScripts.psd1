@@ -63,7 +63,7 @@ NestedModules = @(
     @{
         ModuleName='.\NyxUtil\NyxUtil.psd1';
         ModuleVersion='0.0.1';
-        GUID='dd9afe7a-ab27-458b-948f-937626c71ad8'
+        GUID='3f704cd0-f1eb-477e-9c52-bb3eaf64250d'
     }
 )
 

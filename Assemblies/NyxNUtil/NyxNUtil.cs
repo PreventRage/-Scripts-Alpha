@@ -8,8 +8,7 @@ public static class NyxNUtil {
 
     public static void CloseHandle(Int64 Handle) {
         if (Handle != 0) {
-            IntPtr h = new IntPtr(Handle);
-            if (!Native.CloseHandle(h)) {
+            if (!Native.CloseHandle(new IntPtr(Handle))) {
                 ThrowLastError();
             }
         }
@@ -23,36 +22,145 @@ public static class NyxNUtil {
     }
 
     public static Int32 GetProcessId(Int64 ProcessHandle) {
-        IntPtr h = new IntPtr(ProcessHandle);
-        return (Int32)Native.GetProcessId(h);
+        return Native.GetProcessId(new IntPtr(ProcessHandle));
     }
 
     // OpenProcess seems like a good thing to add
 
     [Flags]
     public enum TokenAccess : Int32 {
-        TokenAdjustDefault = Native.TOKEN_ADJUST_DEFAULT, // Required to change the default owner, primary group, or DACL of an access token.
-        TokenAdjustGroups = Native.TOKEN_ADJUST_GROUPS, // Required to adjust the attributes of the groups in an access token.
-        TokenAdjustPrivileges = Native.TOKEN_ADJUST_PRIVILEGES, // Required to enable or disable the privileges in an access token.
-        TokenAdjustSessionId = Native.TOKEN_ADJUST_SESSIONID, // Required to adjust the session ID of an access token. The SE_TCB_NAME privilege is required.
-        TokenAssignPrimary = Native.TOKEN_ASSIGN_PRIMARY, // Required to attach a primary token to a process. The SE_ASSIGNPRIMARYTOKEN_NAME privilege is also required to accomplish this task.
-        TokenDuplicate = Native.TOKEN_DUPLICATE, // Required to duplicate an access token.
-        TokenExecute = Native.TOKEN_EXECUTE, // Same as STANDARD_RIGHTS_EXECUTE.
-        TokenImpersonate = Native.TOKEN_IMPERSONATE, // Required to attach an impersonation access token to a process.
-        TokenQuery = Native.TOKEN_QUERY, // Required to query an access token.
-        TokenQuerySource = Native.TOKEN_QUERY_SOURCE, // Required to query the source of an access token.
-        TokenRead = Native.TOKEN_READ, // Combines STANDARD_RIGHTS_READ and TOKEN_QUERY.
-        TokenWrite = Native.TOKEN_WRITE, // Combines STANDARD_RIGHTS_WRITE, TOKEN_ADJUST_PRIVILEGES, TOKEN_ADJUST_GROUPS, and TOKEN_ADJUST_DEFAULT.
-        TokenAllAccess = Native.TOKEN_ALL_ACCESS, // Combines all possible access rights for a token.
+        AdjustDefault = Native.TOKEN_ADJUST_DEFAULT, // Required to change the default owner, primary group, or DACL of an access token.
+        AdjustGroups = Native.TOKEN_ADJUST_GROUPS, // Required to adjust the attributes of the groups in an access token.
+        AdjustPrivileges = Native.TOKEN_ADJUST_PRIVILEGES, // Required to enable or disable the privileges in an access token.
+        AdjustSessionId = Native.TOKEN_ADJUST_SESSIONID, // Required to adjust the session ID of an access token. The SE_TCB_NAME privilege is required.
+        AssignPrimary = Native.TOKEN_ASSIGN_PRIMARY, // Required to attach a primary token to a process. The SE_ASSIGNPRIMARYTOKEN_NAME privilege is also required to accomplish this task.
+        Duplicate = Native.TOKEN_DUPLICATE, // Required to duplicate an access token.
+        Execute = Native.TOKEN_EXECUTE, // Same as STANDARD_RIGHTS_EXECUTE.
+        Impersonate = Native.TOKEN_IMPERSONATE, // Required to attach an impersonation access token to a process.
+        Query = Native.TOKEN_QUERY, // Required to query an access token.
+        QuerySource = Native.TOKEN_QUERY_SOURCE, // Required to query the source of an access token.
+        Read = Native.TOKEN_READ, // Combines STANDARD_RIGHTS_READ and TOKEN_QUERY.
+        Write = Native.TOKEN_WRITE, // Combines STANDARD_RIGHTS_WRITE, TOKEN_ADJUST_PRIVILEGES, TOKEN_ADJUST_GROUPS, and TOKEN_ADJUST_DEFAULT.
+        AllAccess = Native.TOKEN_ALL_ACCESS, // Combines all possible access rights for a token.
     }
-
+     
     public static Int64 OpenProcessToken(Int64 ProcessHandle, TokenAccess DesiredAccess) {
-        IntPtr hProcess = new IntPtr(ProcessHandle);
         IntPtr hToken;
-        if (!Native.OpenProcessToken(hProcess, (Int32)DesiredAccess, out hToken)) {
+        if (!Native.OpenProcessToken(new IntPtr(ProcessHandle), (Int32)DesiredAccess, out hToken)) {
             ThrowLastError();
         }
         return (Int64)hToken;
+    }
+
+    public static T GetTokenInformation<T>(
+        Int64? ProcessHandle = null,
+        Int64? TokenHandle = null
+    ) where T : new() {
+        using var args = new TokenArgs(ProcessHandle, TokenHandle, ReadOnly: true);
+        return GetTokenInformation<T>(args.TokenHandle);
+    }
+
+    public static T GetTokenInformation<T>(
+        Int64 TokenHandle
+     ) where T : new() {
+        IntPtr h = new IntPtr(TokenHandle);
+        var tie = Native.MapTokenInformationTypeToEnum.Value[typeof(T)];
+        Int32 cb;
+        Native.GetTokenInformation(h, tie, IntPtr.Zero, 0, out cb);
+        IntPtr p = Marshal.AllocHGlobal(cb);
+        Int32 cb2;
+        if (!Native.GetTokenInformation(h, tie, p, cb, out cb2)) {
+            ThrowLastError();
+        }
+        if (cb != cb2) {
+            throw new Exception("Size of TokenInformation changed mysteriously");
+        }
+        T? result = Marshal.PtrToStructure<T>(p);
+        if (result == null) {
+            throw new Exception("PtrToStructure returned null");
+        }
+        return result;
+    }
+
+    //public static string GetSidString(byte[] sid) {
+    //    IntPtr t;
+    //    String result;
+    //    if (!Native.ConvertSidToStringSid(sid, out ptrSid))
+    //        throw new System.ComponentModel.Win32Exception();
+    //    try {
+    //        sidString = Marshal.PtrToStringAuto(ptrSid);
+    //    }
+    //    finally {
+    //        LocalFree(ptrSid);
+    //    }
+    //    return sidString;
+    //}
+
+    private class TokenArgs : IDisposable {
+
+        public Int64 TokenHandle { get; private set; }
+
+        private Boolean hasBeenDisposed = false;
+        private Boolean tokenHandleMustBeClosed = false;
+
+        ~TokenArgs() {
+            Dispose(false);
+        }
+
+        public void Dispose() {
+            Dispose(true);
+            GC.SuppressFinalize(this);
+        }
+
+        protected virtual void Dispose(bool disposing) {
+            if (!this.hasBeenDisposed) {
+                if (this.tokenHandleMustBeClosed) {
+                    CloseHandle(this.TokenHandle);
+                    this.TokenHandle = 0;
+                    this.tokenHandleMustBeClosed = false;
+                }
+                this.hasBeenDisposed = true;
+            }
+        }
+
+        public TokenArgs(
+            Int64? ProcessHandle,
+            Int64? TokenHandle,
+            Boolean? ReadOnly = null
+         ) {
+            try {
+                if (TokenHandle != null) {
+                    // use provided token
+                    if (ProcessHandle != null) {
+                        throw new ArgumentException(
+                            String.Format("Provide at most one of ProcessHandle or TokenHandle")
+                        );
+                    }
+                    this.TokenHandle = TokenHandle.Value;
+                } else {
+                    // get token from process
+                    Int64 ProcessHandle_Actual;
+                    if (ProcessHandle != null) {
+                        // ... from provided process
+                        ProcessHandle_Actual = ProcessHandle.Value;
+                    } else {
+                        // ... from current process
+                        ProcessHandle_Actual = GetCurrentProcess(); // doesn't need CloseHandle
+                    }
+                    this.TokenHandle = OpenProcessToken(
+                        ProcessHandle_Actual,
+                        (ReadOnly == true) ?
+                            TokenAccess.Read :
+                            TokenAccess.Read | TokenAccess.Write
+                    );
+                    this.tokenHandleMustBeClosed = true;
+                }
+            }
+            catch {
+                this.Dispose(true);
+                throw;
+            }
+        }
     }
 
     public static Int64 GetPrivilegeId(
@@ -72,13 +180,8 @@ public static class NyxNUtil {
         string? PrivilegeName = null,
         Int64? PrivilegeId = null
     ) {
-        var args = PrivilegeArgs.Create(ProcessHandle, TokenHandle, PrivilegeName, PrivilegeId);
-        try {
-            return TokenHasPrivilege(args.TokenHandle, args.PrivilegeId);
-        }
-        finally {
-            args.Dispose();
-        }
+        using var args = new PrivilegeArgs(ProcessHandle, TokenHandle, PrivilegeName, PrivilegeId, ReadOnly: true);
+        return TokenHasPrivilege(args.TokenHandle, args.PrivilegeId);
     }
 
     public static Boolean TokenHasPrivilege(Int64 TokenHandle, Int64 PrivilegeId) {
@@ -103,12 +206,8 @@ public static class NyxNUtil {
         Int64? PrivilegeId = null,
         Boolean Enable = true
     ) {
-        var args = PrivilegeArgs.Create(ProcessHandle, TokenHandle, PrivilegeName, PrivilegeId);
-        try {
-            EnableTokenPrivilege(args.TokenHandle, args.PrivilegeId, Enable);
-        } finally {
-            args.Dispose();
-        }
+        using var args = new PrivilegeArgs(ProcessHandle, TokenHandle, PrivilegeName, PrivilegeId);
+        EnableTokenPrivilege(args.TokenHandle, args.PrivilegeId, Enable);
     }
 
     public static void EnableTokenPrivilege(
@@ -144,117 +243,131 @@ public static class NyxNUtil {
         }
     }
 
-    private class PrivilegeArgs : IDisposable {
+    private class PrivilegeArgs : TokenArgs {
 
-        public Int64 TokenHandle;
-        public Int64 PrivilegeId;
+        public Int64 PrivilegeId { get; }
 
-        private Boolean CloseTokenHandle;
-
-        ~PrivilegeArgs() {
-            Dispose(disposing: false);
-        }
-
-        public void Dispose() {
-            Dispose(disposing: true);
+        public new void Dispose() {
+            this.Dispose(true);
             GC.SuppressFinalize(this);
         }
 
-        private void Dispose(bool disposing) {
-            if (this.CloseTokenHandle) {
-                CloseHandle(this.TokenHandle);
-                this.CloseTokenHandle = false;
-            }
-        }
-
-        public static PrivilegeArgs Create(
+        public PrivilegeArgs(
             Int64? ProcessHandle,
             Int64? TokenHandle,
             string? PrivilegeName,
-            Int64? PrivilegeId
-        ) {
-            var args = new PrivilegeArgs();
+            Int64? PrivilegeId,
+            Boolean? ReadOnly = null
+        ) : base(ProcessHandle, TokenHandle, ReadOnly) {
             try {
-                // Get hToken + hTokenClose from TokenHandle or ProcessHandle or current process
-                if (TokenHandle.HasValue) {
-                    // use provided token
-                    if (ProcessHandle.HasValue) {
-                        throw new ArgumentException(
-                            String.Format("Provide at most one of ProcessHandle or TokenHandle")
-                        );
-                    }
-                    args.TokenHandle = TokenHandle.Value;
-                } else {
-                    // get token from process
-                    Int64 hProcess;
-                    if (ProcessHandle.HasValue) {
-                        // ... from provided process
-                        hProcess = ProcessHandle.Value;
-                    } else {
-                        // ... from current process
-                        hProcess = GetCurrentProcess(); // doesn't need CloseHandle
-                    }
-                    args.TokenHandle = OpenProcessToken(
-                        hProcess,
-                        TokenAccess.TokenQuery | TokenAccess.TokenAdjustPrivileges
-                    );
-                    args.CloseTokenHandle = true;
-                }
-
-                // Get id from PrivilegeName or PrivilegeId
-                if (PrivilegeId.HasValue) {
+                if (PrivilegeId != null) {
                     // use provided id
                     if (PrivilegeName != null) {
                         throw new ArgumentException(
                             String.Format("Provide at most one of PrivilegeName or PrivilegeId")
                         );
                     }
-                    args.PrivilegeId = PrivilegeId.Value;
+                    this.PrivilegeId = PrivilegeId.Value;
                 } else if (PrivilegeName != null) {
-                    args.PrivilegeId = GetPrivilegeId(PrivilegeName);
+                    this.PrivilegeId = GetPrivilegeId(PrivilegeName);
                 } else {
                     throw new ArgumentException(
                         String.Format("Provide at least one of PrivilegeName or PrivilegeId")
                     );
                 }
-
-                return args;
             }
             catch {
-                args.Dispose();
+                this.Dispose(true);
                 throw;
             }
+
         }
     }
 
-    private const string c_UacRegistryKey = "Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System";
-    private const string c_UacRegistryValue = "EnableLUA";
+    private const string c_UacRegistryKeyName = "Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System";
+    private const string c_UacRegistryValueName = "EnableLUA";
 
-    public static Boolean IsUacEnabled {
-        get {
-            if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows)) {
-                return false;
-            }
-            var key =
-                Microsoft.Win32.Registry.LocalMachine.OpenSubKey(c_UacRegistryKey, false);
-            if (key == null) {
-                return false;
-            }
-            var value = key.GetValue(c_UacRegistryValue);
-            if (value == null) {
-                return false;
-            }
-            return value.Equals(1);
+    public static Boolean IsUacEnabled() {
+        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows)) {
+            return false;
         }
+        using var key =
+            Microsoft.Win32.Registry.LocalMachine.OpenSubKey(c_UacRegistryKeyName, false);
+        if (key == null) {
+            return false;
+        }
+        var value = key.GetValue(c_UacRegistryValueName);
+        if (value == null) {
+            return false;
+        }
+        return value.Equals(1);
     }
 
+    public static Boolean IsProcessElevated(Int64? ProcessHandle, Int64?TokenHandle) {
+        using var args = new TokenArgs(ProcessHandle, TokenHandle, ReadOnly: true);
+        return IsTokenElevated(args.TokenHandle);
+    }
+
+    public static Boolean IsTokenElevated(Int64 TokenHandle) {
+        if (IsUacEnabled()) {
+            Native.TOKEN_ELEVATION_TYPE elevation = Native.TOKEN_ELEVATION_TYPE.TokenElevationTypeDefault;
+        } else {
+
+        }
+        return false;
+    }
+
+    //    IntPtr tokenHandle = IntPtr.Zero;
+    //        if (!OpenProcessToken(Process.GetCurrentProcess().Handle, TOKEN_READ, out tokenHandle)) {
+    //            throw new ApplicationException("Could not get process token.  Win32 Error Code: " +
+    //                                           Marshal.GetLastWin32Error());
+    //        }
+
+    //        try {
+    //            TOKEN_ELEVATION_TYPE elevationResult = TOKEN_ELEVATION_TYPE.TokenElevationTypeDefault;
+
+    //            int elevationResultSize = Marshal.SizeOf(typeof(TOKEN_ELEVATION_TYPE));
+    //            uint returnedSize = 0;
+
+    //            IntPtr elevationTypePtr = Marshal.AllocHGlobal(elevationResultSize);
+    //            try {
+    //                bool success = GetTokenInformation(tokenHandle, TOKEN_INFORMATION_CLASS.TokenElevationType,
+    //                                                   elevationTypePtr, (uint)elevationResultSize,
+    //                                                   out returnedSize);
+    //                if (success) {
+    //                    elevationResult = (TOKEN_ELEVATION_TYPE)Marshal.ReadInt32(elevationTypePtr);
+    //                    bool isProcessAdmin = elevationResult == TOKEN_ELEVATION_TYPE.TokenElevationTypeFull;
+    //                    return isProcessAdmin;
+    //                } else {
+    //                    throw new ApplicationException("Unable to determine the current elevation.");
+    //                }
+    //            }
+    //            finally {
+    //                if (elevationTypePtr != IntPtr.Zero)
+    //                    Marshal.FreeHGlobal(elevationTypePtr);
+    //            }
+    //        }
+    //        finally {
+    //            if (tokenHandle != IntPtr.Zero)
+    //                CloseHandle(tokenHandle);
+    //        }
+
+
+
+
+    //    } else {
+
+    //    }
+
+    //}
+    
     public static class Native {
 
         // CloseHandle
 
         [DllImport("kernel32.dll", ExactSpelling = true, SetLastError = true)]
         [return: MarshalAs(UnmanagedType.Bool)]
-        public static extern /*BOOL*/ bool CloseHandle(
+        public static extern /*BOOL*/ Boolean CloseHandle(
             /*[in] HANDLE*/ IntPtr Handle
         );
 
@@ -323,21 +436,86 @@ public static class NyxNUtil {
 
         [DllImport("advapi32.dll", ExactSpelling = true, SetLastError = true)]
         [return: MarshalAs(UnmanagedType.Bool)]
-        public static extern /*BOOL*/ bool OpenProcessToken(
-            /*[in] HANDLE*/ IntPtr ProcessHandle,
-            /*[in] DWORD*/ Int32 DesiredAccess,
-            /*[out] PHANDLE*/ out IntPtr TokenHandle
+        public static extern /* BOOL */ Boolean OpenProcessToken(
+            /* [in] HANDLE */ IntPtr ProcessHandle,
+            /* [in] DWORD */ Int32 DesiredAccess,
+            /* [out] PHANDLE */ out IntPtr TokenHandle
         );
+
+        // ?
+
+        public enum TOKEN_INFORMATION_CLASS {
+            TokenUser = 1,
+            TokenGroups,
+            TokenPrivileges,
+            TokenOwner,
+            TokenPrimaryGroup,
+            TokenDefaultDacl,
+            TokenSource,
+            TokenType,
+            TokenImpersonationLevel,
+            TokenStatistics,
+            TokenRestrictedSids,
+            TokenSessionId,
+            TokenGroupsAndPrivileges,
+            TokenSessionReference,
+            TokenSandBoxInert,
+            TokenAuditPolicy,
+            TokenOrigin
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct TOKEN_USER {
+            public SID_AND_ATTRIBUTES User;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct SID_AND_ATTRIBUTES {
+            public IntPtr Sid;
+            public Int32 Attributes;
+        }
+
+        public enum TOKEN_ELEVATION_TYPE {
+            TokenElevationTypeDefault = 1,
+            TokenElevationTypeFull,
+            TokenElevationTypeLimited
+        }
+
+        public static readonly Lazy<Dictionary<Type, TOKEN_INFORMATION_CLASS>>
+            MapTokenInformationTypeToEnum = new Lazy<Dictionary<Type, TOKEN_INFORMATION_CLASS>>(
+                () => new Dictionary<Type, TOKEN_INFORMATION_CLASS>() {
+                { typeof(TOKEN_USER), TOKEN_INFORMATION_CLASS.TokenUser }
+                }
+            );
+
+        [DllImport("advapi32.dll", ExactSpelling = true, SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern /* BOOL */ Boolean GetTokenInformation(
+             /* [in] HANDLE */ IntPtr TokenHandle,
+             /* [in] */ TOKEN_INFORMATION_CLASS TokenInformationClass,
+             /* [out, optional] LPVOID */ IntPtr TokenInformation,
+             /* [in] DWORD */ Int32 TokenInformation_RoomInBytes,
+             /* [out] PDWORD */ out Int32 TokenInformation_SizeInBytes
+        );
+
+
+        // ?
+
+        [DllImport("advapi32.dll", CharSet = CharSet.Auto, SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern /* BOOL*/ Boolean ConvertSidToStringSid(
+            /* [in] PSID */ IntPtr Sid,
+            /* [out] LPSTR* */ out IntPtr StringSid);
 
 
         // LookupPrivilegeValue
 
         [DllImport("advapi32.dll", SetLastError = true)]
         [return: MarshalAs(UnmanagedType.Bool)]
-        internal static extern /*BOOL*/ Boolean LookupPrivilegeValue(
-            /*[in, optional] LPCWSTR*/ String? SystemName,
-            /*[in] LPCWSTR*/ String PrivilegeName,
-            /*[out] PLUID*/ out Int64 PrivilegeLuid
+        internal static extern /* BOOL */ Boolean LookupPrivilegeValue(
+            /* [in, optional] LPCWSTR */ String? SystemName,
+            /* [in] LPCWSTR */ String PrivilegeName,
+            /* [out] PLUID */ out Int64 PrivilegeLuid
         );
 
 
@@ -345,19 +523,19 @@ public static class NyxNUtil {
 
         [DllImport("advapi32.dll", ExactSpelling = true, SetLastError = true)]
         [return: MarshalAs(UnmanagedType.Bool)]
-        internal static extern /*BOOL*/ bool PrivilegeCheck(
+        internal static extern /*BOOL*/ Boolean PrivilegeCheck(
             /*HANDLE*/ IntPtr TokenHandle,
             /*PPRIVILEGE_SET*/ ref PRIVILEGE_SET_RoomForOne RequiredPrivileges,
-            /*LPBOOL*/ out bool pfResult
+            /*LPBOOL*/ out Boolean pfResult
           );
 
         [StructLayout(LayoutKind.Sequential, Pack = 1)]
         internal struct PRIVILEGE_SET_RoomForOne {
-            public /*DWORD*/ Int32 PrivilegeCount;
-            public /*DWORD*/ Int32 Control;
-            /*LUID_AND_ATTRIBUTES Privileges[ANYSIZE_ARRAY] ... */
-            public /*LUID*/ Int64 Luid;
-            public /*DWORD*/ Int32 Attributes;
+            public /* DWORD */ Int32 PrivilegeCount;
+            public /* DWORD */ Int32 Control;
+            /* LUID_AND_ATTRIBUTES Privileges[ANYSIZE_ARRAY] ... */
+            public /* LUID */ Int64 Luid;
+            public /* DWORD */ Int32 Attributes;
         }
 
         internal const Int32 PRIVILEGE_SET_ALL_NECESSARY = 0x00000001;
@@ -367,13 +545,13 @@ public static class NyxNUtil {
 
         [DllImport("advapi32.dll", ExactSpelling = true, SetLastError = true)]
         [return: MarshalAs(UnmanagedType.Bool)]
-        internal static extern /*BOOL*/ bool AdjustTokenPrivileges(
-            /*HANDLE*/ IntPtr TokenHandle,
-            /*BOOL*/ [MarshalAs(UnmanagedType.Bool)] bool DisableAllPrivileges,
-            /*PTOKEN_PRIVILEGES*/ ref TOKEN_PRIVILEGES_RoomForOne NewState,
-            /*DWORD*/ Int32 PreviousState_RoomInBytes,
-            /*PTOKEN_PRIVILEGES*/ ref TOKEN_PRIVILEGES_RoomForOne PreviousState,
-            /*PDWORD*/ out Int32 PreviousState_SizeInBytes
+        internal static extern /* BOOL */ Boolean AdjustTokenPrivileges(
+            /* HANDLE */ IntPtr TokenHandle,
+            /* BOOL */ [MarshalAs(UnmanagedType.Bool)] Boolean DisableAllPrivileges,
+            /* PTOKEN_PRIVILEGES */ ref TOKEN_PRIVILEGES_RoomForOne NewState,
+            /* DWORD */ Int32 PreviousState_RoomInBytes,
+            /* PTOKEN_PRIVILEGES */ ref TOKEN_PRIVILEGES_RoomForOne PreviousState,
+            /* PDWORD */ out Int32 PreviousState_SizeInBytes
         );
 
         [StructLayout(LayoutKind.Sequential, Pack = 1)]

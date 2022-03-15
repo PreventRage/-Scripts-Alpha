@@ -1,5 +1,5 @@
 #
-# Module manifest for module 'Nyx-Privilege'
+# Module manifest for module 'NyxUtil'
 #
 
 @{
@@ -14,7 +14,7 @@ ModuleVersion = '0.0.1'
 # CompatiblePSEditions = @()
 
 # ID used to uniquely identify this module
-GUID = 'dd9afe7a-ab27-458b-948f-937626c71ad8'
+GUID = '3f704cd0-f1eb-477e-9c52-bb3eaf64250d'
 
 # Author of this module
 Author = 'PreventRage'
@@ -23,7 +23,7 @@ Author = 'PreventRage'
 #CompanyName = 'Unknown'
 
 # Copyright statement for this module
-Copyright = '(c) PreventRage. All rights reserved.'
+Copyright = '(c) 2022 PreventRage. All rights reserved.'
 
 # Description of the functionality provided by this module
 # Description = ''
