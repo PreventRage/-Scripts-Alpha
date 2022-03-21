@@ -3,7 +3,7 @@ using System;
 using System.Diagnostics;
 
 namespace NyxNUtil_Test {
-    [TestClass]
+    [TestClass, System.Runtime.Versioning.SupportedOSPlatform("windows")]
     public class NyxNUtil_UnitTest {
         [TestMethod]
         public void Test_Privilege() {
@@ -38,8 +38,10 @@ namespace NyxNUtil_Test {
         }
 
         [TestMethod]
-        public void Test_TokenInformation() {
-            var info1 = NyxNUtil.GetTokenInformation<NyxNUtil.Native.TOKEN_USER>();
+        public void Test_GetTokenUser() {
+            var sid = NyxNUtil.GetTokenUser();
+            var tua = NyxNUtil.LookupAccountSid(sid);
+
         }
     }
 }
