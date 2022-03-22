@@ -7,7 +7,6 @@ namespace NyxNUtil_Test {
     public class NyxNUtil_UnitTest {
         [TestMethod]
         public void Test_Privilege() {
-
             Assert.IsTrue((NyxNUtil.TokenAccess.Write | NyxNUtil.TokenAccess.AdjustPrivileges) == NyxNUtil.TokenAccess.Write);
 
             var PrivilegeName = "SeTakeOwnershipPrivilege";
@@ -41,7 +40,7 @@ namespace NyxNUtil_Test {
         public void Test_GetTokenUser() {
             var sid = NyxNUtil.GetTokenUser();
             var tua = NyxNUtil.LookupAccountSid(sid);
-
+            NyxNUtil.GetTokenElevationType();
         }
     }
 }

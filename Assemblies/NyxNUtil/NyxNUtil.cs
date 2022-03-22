@@ -5,26 +5,23 @@ using System.Security.Principal;
 public static class NyxNUtil {
 
     internal static int LastError() {
-        return Marshal.GetLastWin32Error();
+        var err = Marshal.GetLastWin32Error();
+        return err;
     }
 
-    internal static Exception LastErrorException() {
-        // Seems like there should be a Marshal.ExceptionForHR method to go with
-        // (or maybe instead of) Marshal.ThrowExceptionForHR. Functions that always
-        // throw don't seem very well supported in C#, [DoesNotReturn] not withstanding.
-        // So instead we have this hack and end up throwing twice.
-        Exception result;
-        try {
-            Marshal.ThrowExceptionForHR(Marshal.GetHRForLastWin32Error());
-            // Speaking of C# not supporting functions that never return. We can actually
-            // never get here; ThrowExceptionForHR always throws. But the compiler doesn't
-            // notice. So we have to initialize result on this bogus code-path too.
-            result = new Exception("Should be impossible");
+    internal static Exception? GetExceptionForLastErrorIf() {
+        var hr = Marshal.GetHRForLastWin32Error();
+        var e = Marshal.GetExceptionForHR(hr);
+        return e;
+    }
+
+    internal static Exception GetExceptionForLastError() {
+        var e = GetExceptionForLastErrorIf();
+        if (e != null) {
+            return e;
+        } else {
+            return new Exception("The Last Error is that there is no Last Error");
         }
-        catch (Exception e) {
-            result = e;
-        }
-        return result;
     }
 
     [System.Diagnostics.CodeAnalysis.DoesNotReturn]
@@ -45,7 +42,7 @@ public static class NyxNUtil {
     public static void CloseHandle(Int64 Handle) {
         if (Handle != 0) {
             if (!Core.CloseHandle(new IntPtr(Handle))) {
-                throw LastErrorException();
+                throw GetExceptionForLastError();
             }
         }
     }
@@ -85,7 +82,7 @@ public static class NyxNUtil {
     public static Int64 OpenProcessToken(Int64 ProcessHandle, TokenAccess DesiredAccess) {
         IntPtr hToken;
         if (!Core.OpenProcessToken(new IntPtr(ProcessHandle), (Int32)DesiredAccess, out hToken)) {
-            throw LastErrorException();
+            throw GetExceptionForLastError();
         }
         return (Int64)hToken;
     }
@@ -174,7 +171,38 @@ public static class NyxNUtil {
         TokenSessionReference,
         TokenSandBoxInert,
         TokenAuditPolicy,
-        TokenOrigin
+        TokenOrigin,
+        TokenElevationType,
+        TokenLinkedToken,
+        TokenElevation,
+        TokenHasRestrictions,
+        TokenAccessInformation,
+        TokenVirtualizationAllowed,
+        TokenVirtualizationEnabled,
+        TokenIntegrityLevel,
+        TokenUIAccess,
+        TokenMandatoryPolicy,
+        TokenLogonSid,
+        TokenIsAppContainer,
+        TokenCapabilities,
+        TokenAppContainerSid,
+        TokenAppContainerNumber,
+        TokenUserClaimAttributes,
+        TokenDeviceClaimAttributes,
+        TokenRestrictedUserClaimAttributes,
+        TokenRestrictedDeviceClaimAttributes,
+        TokenDeviceGroups,
+        TokenRestrictedDeviceGroups,
+        TokenSecurityAttributes,
+        TokenIsRestricted,
+        TokenProcessTrustLevel,
+        TokenPrivateNameSpace,
+        TokenSingletonAttributes,
+        TokenBnoIsolation,
+        TokenChildProcessFlags,
+        TokenIsLessPrivilegedAppContainer,
+        TokenIsSandboxed,
+        MaxTokenInfoClass
     }
 
     internal static T GetTokenInformation<T>(
@@ -184,28 +212,14 @@ public static class NyxNUtil {
         IntPtr p = IntPtr.Zero;
         try {
             IntPtr h = new IntPtr(TokenHandle);
-            const int cbTry = 256;
-            p = Marshal.AllocHGlobal(cbTry);
-            Int32 cb;
-            if (Core.GetTokenInformation(h, tic, p, cbTry, out cb)) {
-                goto LSuccess;
+            Core.GetTokenInformation(h, tic, IntPtr.Zero, 0, out var cb);
+            p = Marshal.AllocHGlobal(cb);
+            if (!Core.GetTokenInformation(h, tic, p, cb, out var cb2)) {
+                throw GetExceptionForLastError();
             }
-            if (cb > cbTry) {
-                // All might not be lost. It appears we need more space.
-                Marshal.FreeHGlobal(p);
-                p = Marshal.AllocHGlobal(cb);
-                Int32 cb2;
-                if (Core.GetTokenInformation(h, tic, p, cb, out cb2)) {
-                    if (cb != cb2) {
-                        throw new Exception("Size of TokenInformation changed mysteriously");
-                    }
-                    goto LSuccess;
-                }
+            if (cb2 != cb) {
+                throw new Exception("The size of the TokenInformation mysteriously changed between calls.");
             }
-            // Failed
-            throw LastErrorException();
-
-        LSuccess:
             return Marshal.PtrToStructure<T>(p);
         }
         finally {
@@ -233,6 +247,27 @@ public static class NyxNUtil {
         using var args = new TokenArgs(ProcessHandle, TokenHandle, ReadOnly: true);
         var tu = GetTokenInformation<TOKEN_USER>(args.TokenHandle, TOKEN_INFORMATION_CLASS.TokenUser);
         return new SecurityIdentifier(tu.User.Sid);
+    }
+
+    public enum ElevationType /* aka TOKEN_ELEVATION_TYPE */ {
+        Default = 1,
+        Full,
+        Limited
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct TokenElevation /* aka TOKEN_ELEVATION */ {
+        public UInt32 TokenIsElevated;
+    }
+
+    public static ElevationType GetTokenElevationType(
+        Int64? ProcessHandle = null,
+        Int64? TokenHandle = null
+    ) {
+        using var args = new TokenArgs(ProcessHandle, TokenHandle, ReadOnly: true);
+        var et1 = GetTokenInformation<UInt32>(args.TokenHandle, TOKEN_INFORMATION_CLASS.TokenElevationType);
+        var et2 = GetTokenInformation<TokenElevation>(args.TokenHandle, TOKEN_INFORMATION_CLASS.TokenElevation);
+        return (ElevationType)0;
     }
 
     #endregion
@@ -298,7 +333,7 @@ public static class NyxNUtil {
                 ref referencedDomainName_SizeInCharacters,
                 out use
             )) {
-                // Success!
+                // Success
                 return new LookupAccountSidResult(StringFromWz(name), StringFromWz(referencedDomainName), use);
             }
             // Lookup failed...
@@ -330,8 +365,8 @@ public static class NyxNUtil {
                         continue; // try again
                 }
             }
-            // Failure!
-            throw LastErrorException();
+            // Failure
+            throw GetExceptionForLastError();
         }
     }
 
@@ -386,7 +421,7 @@ public static class NyxNUtil {
     ) {
         Int64 id;
         if (!Core.LookupPrivilegeValue(SystemName, PrivilegeName, out id)) {
-            throw LastErrorException();
+            throw GetExceptionForLastError();
         }
         return id;
     }
@@ -411,7 +446,7 @@ public static class NyxNUtil {
         IntPtr hToken = new IntPtr(TokenHandle);
         Boolean isEnabled;
         if (!Core.PrivilegeCheck(hToken, ref ps, out isEnabled)) {
-            throw LastErrorException();
+            throw GetExceptionForLastError();
         }
         return isEnabled;
     }
@@ -456,11 +491,13 @@ public static class NyxNUtil {
         // Somewhat weirdly AdjustTokenPrivileges sets error ERROR_NOT_ALL_ASSIGNED
         // while nevertheless returning success/true.
         if (!ok || Marshal.GetLastWin32Error() == Core.ERROR_NOT_ALL_ASSIGNED) {
-            throw LastErrorException();
+            throw GetExceptionForLastError();
         }
     }
 
-    #endregion // Privileges
+    #endregion
+
+    #region Elevation
 
     private const string c_UacRegistryKeyName = "Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System";
     private const string c_UacRegistryValueName = "EnableLUA";
@@ -488,19 +525,17 @@ public static class NyxNUtil {
 
     public static Boolean IsTokenElevated(Int64 TokenHandle) {
         if (IsUacEnabled()) {
-            Core.TOKEN_ELEVATION_TYPE elevation = Core.TOKEN_ELEVATION_TYPE.TokenElevationTypeDefault;
+                ElevationType et = ElevationType.Default;
         } else {
 
         }
         return false;
     }
 
-    //    IntPtr tokenHandle = IntPtr.Zero;
-    //        if (!OpenProcessToken(Process.GetCurrentProcess().Handle, TOKEN_READ, out tokenHandle)) {
-    //            throw new ApplicationException("Could not get process token.  Win32 Error Code: " +
-    //                                           Marshal.GetLastWin32Error());
-    //        }
+    #endregion
 
+
+    
     //        try {
     //            TOKEN_ELEVATION_TYPE elevationResult = TOKEN_ELEVATION_TYPE.TokenElevationTypeDefault;
 
@@ -538,7 +573,7 @@ public static class NyxNUtil {
     //    }
 
     //}
-    
+
     public static class Core {
 
         internal const int NO_ERROR = 0;
@@ -617,11 +652,6 @@ public static class NyxNUtil {
 
         // ?
 
-        public enum TOKEN_ELEVATION_TYPE {
-            TokenElevationTypeDefault = 1,
-            TokenElevationTypeFull,
-            TokenElevationTypeLimited
-        }
 
         [DllImport("advapi32.dll", ExactSpelling = true, SetLastError = true)]
         [return: MarshalAs(UnmanagedType.Bool)]
