@@ -1,5 +1,6 @@
 ﻿using System.Runtime.InteropServices;
 using System.Security.Principal;
+using System.Diagnostics;
 
 [System.Runtime.Versioning.SupportedOSPlatform("windows")]
 public static class NyxNUtil {
@@ -115,14 +116,14 @@ public static class NyxNUtil {
         }
 
         public TokenArgs(
-            Int64? ProcessHandle,
-            Int64? TokenHandle,
+            Int64? ProcessHandle = null,
+            Int64? TokenHandle = null,
             Boolean? ReadOnly = null
          ) {
             try {
-                if (TokenHandle != null) {
+                if (TokenHandle is not null) {
                     // use provided token
-                    if (ProcessHandle != null) {
+                    if (ProcessHandle is not null) {
                         throw new ArgumentException(
                             String.Format("Provide at most one of ProcessHandle or TokenHandle")
                         );
@@ -131,7 +132,7 @@ public static class NyxNUtil {
                 } else {
                     // get token from process
                     Int64 ProcessHandle_Actual;
-                    if (ProcessHandle != null) {
+                    if (ProcessHandle is not null) {
                         // ... from provided process
                         ProcessHandle_Actual = ProcessHandle.Value;
                     } else {
@@ -209,8 +210,11 @@ public static class NyxNUtil {
         Int64 TokenHandle,
         TOKEN_INFORMATION_CLASS tic
     ) where T : struct {
-        IntPtr p = IntPtr.Zero;
+        IntPtr p = IntPtr.Zero;     
         try {
+            // I tried guessing a size first but it appears that in some cases passing in too large a
+            // buffer to GetTokenInformation results in errors. TokenUser seemed to work but TokenElevationType
+            // didn't. So I went back always calling twice, once to get cb and then to get the information.
             IntPtr h = new IntPtr(TokenHandle);
             Core.GetTokenInformation(h, tic, IntPtr.Zero, 0, out var cb);
             p = Marshal.AllocHGlobal(cb);
@@ -220,6 +224,10 @@ public static class NyxNUtil {
             if (cb2 != cb) {
                 throw new Exception("The size of the TokenInformation mysteriously changed between calls.");
             }
+            // I tried having this return data through an out parameter rather than allocating but
+            // the version of PtrToStructure that looks like it should work in such cases only works
+            // for objects, not value types. Which seems almost backwards, but oh well. So we use
+            // the version of PtrToStructure that returns boxed value types.
             return Marshal.PtrToStructure<T>(p);
         }
         finally {
@@ -230,44 +238,23 @@ public static class NyxNUtil {
     }
 
     [StructLayout(LayoutKind.Sequential)]
-    private struct TOKEN_USER {
+    internal struct TOKEN_USER {
         public SID_AND_ATTRIBUTES User;
     }
 
     [StructLayout(LayoutKind.Sequential)]
-    private struct SID_AND_ATTRIBUTES {
+    internal struct SID_AND_ATTRIBUTES {
         public IntPtr Sid;
         public Int32 Attributes;
     }
 
-    public static SecurityIdentifier GetTokenUser(
+    public static SecurityIdentifier GetUser(
         Int64? ProcessHandle = null,
         Int64? TokenHandle = null
     ) {
         using var args = new TokenArgs(ProcessHandle, TokenHandle, ReadOnly: true);
         var tu = GetTokenInformation<TOKEN_USER>(args.TokenHandle, TOKEN_INFORMATION_CLASS.TokenUser);
         return new SecurityIdentifier(tu.User.Sid);
-    }
-
-    public enum ElevationType /* aka TOKEN_ELEVATION_TYPE */ {
-        Default = 1,
-        Full,
-        Limited
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    public struct TokenElevation /* aka TOKEN_ELEVATION */ {
-        public UInt32 TokenIsElevated;
-    }
-
-    public static ElevationType GetTokenElevationType(
-        Int64? ProcessHandle = null,
-        Int64? TokenHandle = null
-    ) {
-        using var args = new TokenArgs(ProcessHandle, TokenHandle, ReadOnly: true);
-        var et1 = GetTokenInformation<UInt32>(args.TokenHandle, TOKEN_INFORMATION_CLASS.TokenElevationType);
-        var et2 = GetTokenInformation<TokenElevation>(args.TokenHandle, TOKEN_INFORMATION_CLASS.TokenElevation);
-        return (ElevationType)0;
     }
 
     #endregion
@@ -288,12 +275,12 @@ public static class NyxNUtil {
         SidTypeLogonSession
     }
 
-    public class LookupAccountSidResult {
+    public class LookupAccountResult {
         public readonly String Name;
         public readonly String ReferencedDomainName;
         public readonly SidNameUse Use;
 
-        internal LookupAccountSidResult(
+        internal LookupAccountResult(
             String Name,
             String ReferencedDomainName,
             SidNameUse Use
@@ -304,7 +291,7 @@ public static class NyxNUtil {
         }
     }
 
-    public static LookupAccountSidResult LookupAccountSid(
+    public static LookupAccountResult LookupAccount(
         SecurityIdentifier? sid = null,
         byte[]? sidAsBytes = null,
         String? SystemName = null
@@ -334,7 +321,7 @@ public static class NyxNUtil {
                 out use
             )) {
                 // Success
-                return new LookupAccountSidResult(StringFromWz(name), StringFromWz(referencedDomainName), use);
+                return new LookupAccountResult(StringFromWz(name), StringFromWz(referencedDomainName), use);
             }
             // Lookup failed...
             if (iTry < 4) {
@@ -384,10 +371,10 @@ public static class NyxNUtil {
         }
 
         public PrivilegeArgs(
-            Int64? ProcessHandle,
-            Int64? TokenHandle,
-            string? PrivilegeName,
-            Int64? PrivilegeId,
+            Int64? ProcessHandle = null,
+            Int64? TokenHandle = null,
+            string? PrivilegeName = null,
+            Int64? PrivilegeId = null,
             Boolean? ReadOnly = null
         ) : base(ProcessHandle, TokenHandle, ReadOnly) {
             try {
@@ -487,6 +474,9 @@ public static class NyxNUtil {
             ref tpOld,      // PreviousState
             out tpOld_Size  // PreviousState_SizeInBytes
         );
+        if (tpOld_Size > tpOld_Room) {
+            throw new Exception("Size is strangely larger than Room");
+        }
 
         // Somewhat weirdly AdjustTokenPrivileges sets error ERROR_NOT_ALL_ASSIGNED
         // while nevertheless returning success/true.
@@ -498,6 +488,56 @@ public static class NyxNUtil {
     #endregion
 
     #region Elevation
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct TokenElevation /* aka TOKEN_ELEVATION */ {
+        public UInt32 TokenIsElevated;
+    }
+
+    public enum ElevationType /* aka TOKEN_ELEVATION_TYPE */ {
+        Default = 1,
+        Full,
+        Limited
+    }
+
+    public static ElevationType GetElevationType(
+        Int64? ProcessHandle = null,
+        Int64? TokenHandle = null
+    ) {
+        using var args = new TokenArgs(ProcessHandle, TokenHandle, ReadOnly: true);
+        return GetTokenElevationType(args.TokenHandle);
+    }
+
+    public static ElevationType GetTokenElevationType(Int64 TokenHandle) {
+        var elevationType = (ElevationType)GetTokenInformation<UInt32>(
+            TokenHandle,
+            TOKEN_INFORMATION_CLASS.TokenElevationType);
+        #if DEBUG
+        {
+            var isElevated = GetTokenInformation<TokenElevation>(
+                TokenHandle,
+                TOKEN_INFORMATION_CLASS.TokenElevation
+            ).TokenIsElevated != 0;
+            Debug.Assert((elevationType == ElevationType.Full) == isElevated);
+        }
+        #endif
+        return elevationType;
+    }
+
+    public static Boolean IsElevated(
+        Int64? ProcessHandle = null,
+        Int64? TokenHandle = null,
+        Boolean? Uac = null
+    ) {
+        using var args = new TokenArgs(ProcessHandle, TokenHandle, ReadOnly: true);
+        return IsTokenElevated(args.TokenHandle, Uac);
+    }
+
+    public static Boolean IsTokenElevated(Int64 TokenHandle, Boolean? Uac) {
+        return ((Uac is true) || ((Uac is null) && IsUacEnabled())) ?
+            IsTokenElevated_Uac(TokenHandle) :
+            IsTokenElevated_NotUac(TokenHandle);
+    }
 
     private const string c_UacRegistryKeyName = "Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System";
     private const string c_UacRegistryValueName = "EnableLUA";
@@ -518,24 +558,34 @@ public static class NyxNUtil {
         return value.Equals(1);
     }
 
-    public static Boolean IsProcessElevated(Int64? ProcessHandle, Int64?TokenHandle) {
-        using var args = new TokenArgs(ProcessHandle, TokenHandle, ReadOnly: true);
-        return IsTokenElevated(args.TokenHandle);
+    internal static Boolean IsTokenElevated_Uac(Int64 TokenHandle) {
+        var isElevated = GetTokenInformation<TokenElevation>(
+            TokenHandle,
+            TOKEN_INFORMATION_CLASS.TokenElevation
+        ).TokenIsElevated != 0;
+        #if DEBUG
+        {
+            var elevationType = (ElevationType)GetTokenInformation<UInt32>(
+                TokenHandle,
+                TOKEN_INFORMATION_CLASS.TokenElevationType);
+            Debug.Assert(isElevated == (elevationType == ElevationType.Full));
+        }
+        #endif
+        return isElevated;
     }
 
-    public static Boolean IsTokenElevated(Int64 TokenHandle) {
-        if (IsUacEnabled()) {
-                ElevationType et = ElevationType.Default;
-        } else {
-
-        }
-        return false;
+    internal static Boolean IsTokenElevated_NotUac(Int64 TokenHandle) {
+        WindowsIdentity identity = WindowsIdentity.GetCurrent();
+        WindowsPrincipal principal = new WindowsPrincipal(identity);
+        Boolean isAdmin = principal.IsInRole(WindowsBuiltInRole.Administrator) ||
+            principal.IsInRole(0x200/*Domain Administrator*/);
+        return isAdmin;
     }
 
     #endregion
 
 
-    
+
     //        try {
     //            TOKEN_ELEVATION_TYPE elevationResult = TOKEN_ELEVATION_TYPE.TokenElevationTypeDefault;
 

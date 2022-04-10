@@ -70,6 +70,7 @@ ScriptsToProcess = @(
 
 # Functions to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no functions to export.
 FunctionsToExport = @(
+    'Test-Elevated',
     'Test-Privilege',
     'Set-Privilege'
 )
@@ -90,10 +91,7 @@ AliasesToExport = @()
 # ModuleList = @()
 
 # List of all files packaged with this module
-FileList = @(
-    '.\NyxUtil.ps1',
-    '.\NyxNUtil.ps1'
-)
+# FileList = @()
 
 # Private data to pass to the module specified in RootModule/ModuleToProcess. This may also contain a PSData hashtable with additional module metadata used by PowerShell.
 PrivateData = @{

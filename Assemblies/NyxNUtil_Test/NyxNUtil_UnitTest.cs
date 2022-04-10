@@ -38,9 +38,10 @@ namespace NyxNUtil_Test {
 
         [TestMethod]
         public void Test_GetTokenUser() {
-            var sid = NyxNUtil.GetTokenUser();
-            var tua = NyxNUtil.LookupAccountSid(sid);
-            NyxNUtil.GetTokenElevationType();
+            var sid = NyxNUtil.GetUser();
+            var las = NyxNUtil.LookupAccount(sid);
+            var et = NyxNUtil.GetElevationType();
+            var isElevated = NyxNUtil.IsElevated();
         }
     }
 }

@@ -23,6 +23,9 @@ function Assert {
 
 $CurrentUserName = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
 $CurrentUser = New-Object System.Security.Principal.NTAccount($CurrentUserName)
+
+$x = [NyxNUtil]::GetUser()
+$y = [NyxNUtil]::LookupAccount($x)
       
 enum Privilege {
     SeAssignPrimaryTokenPrivilege
@@ -62,83 +65,45 @@ enum Privilege {
     SeUnsolicitedInputPrivilege
 }
 
-[Flags()]
-enum TokenAccess {
-    TokenAdjustDefault = [NyxNUtil+Native]::TOKEN_ADJUST_DEFAULT # Required to change the default owner, primary group, or DACL of an access token.
-    TokenAdjustGroups = [NyxNUtil+Native]::TOKEN_ADJUST_GROUPS # Required to adjust the attributes of the groups in an access token.
-    TokenAdjustPrivileges = [NyxNUtil+Native]::TOKEN_ADJUST_PRIVILEGES # Required to enable or disable the privileges in an access token.
-    TokenAdjustSessionId = [NyxNUtil+Native]::TOKEN_ADJUST_SESSIONID # Required to adjust the session ID of an access token. The SE_TCB_NAME privilege is required.
-    TokenAssignPrimary = [NyxNUtil+Native]::TOKEN_ASSIGN_PRIMARY # Required to attach a primary token to a process. The SE_ASSIGNPRIMARYTOKEN_NAME privilege is also required to accomplish this task.
-    TokenDuplicate = [NyxNUtil+Native]::TOKEN_DUPLICATE # Required to duplicate an access token.
-    TokenExecute = [NyxNUtil+Native]::TOKEN_EXECUTE # Same as STANDARD_RIGHTS_EXECUTE.
-    TokenImpersonate = [NyxNUtil+Native]::TOKEN_IMPERSONATE # Required to attach an impersonation access token to a process.
-    TokenQuery = [NyxNUtil+Native]::TOKEN_QUERY # Required to query an access token.
-    TokenQuerySource = [NyxNUtil+Native]::TOKEN_QUERY_SOURCE # Required to query the source of an access token.
-    TokenRead = [NyxNUtil+Native]::TOKEN_READ # Combines STANDARD_RIGHTS_READ and TOKEN_QUERY.
-    TokenWrite = [NyxNUtil+Native]::TOKEN_WRITE # Combines STANDARD_RIGHTS_WRITE, TOKEN_ADJUST_PRIVILEGES, TOKEN_ADJUST_GROUPS, and TOKEN_ADJUST_DEFAULT.
-    TokenAllAccess = [NyxNUtil+Native]::TOKEN_ALL_ACCESS # Combines all possible access rights for a token.
-}
+function Test-Elevated {
+    [CmdletBinding(
+        PositionalBinding=$false
+    )]    
+    Param(
+        [Parameter(Mandatory=$false)]
+        [Nullable[Int64]]$ProcessHandle,
 
-function SetProcessHandleAndId() {
-    if ($null -ne $ProcessHandle) {
-        $Id = [NyxNUtil]::GetProcessId($ProcessHandle)
-        if ($null -ne $ProcessId) {
-            if ($Id -ne $ProcessId) {
-                Write-Error 'ProcessId does not match ProcessHandle'
-                return $null
-            }
-        } else {
-            Set-Variable ProcessId $Id -Scope 1
-        }
-    } else {
-        if ($null -eq $ProcessId) {
-            Set-Variable ProcessId $pid -Scope 1
-        }
-        Set-Variable ProcessHandle (Get-Process -id $ProcessId).Handle -Scope 1
-    }
+        [Parameter(Mandatory=$false)]
+        [Nullable[Int64]]$TokenHandle,
+
+        [Parameter(Mandatory=$false)]
+        [Nullable[Boolean]]$Uac
+    )
+
+    $Result = [NyxNUtil]::IsElevated($ProcessHandle, $TokenHandle, $Uac)
+    return $Result
 }
 
 function Test-Privilege {
+    [CmdletBinding(
+        PositionalBinding=$false
+    )]    
     Param(
-        # The privilege to test.
-        [Parameter(Mandatory=$true, Position=1)]
-        [Privilege]$Privilege, 
-    
-        # What to check for the specified privilege. You may specify either
-        # ProcessId or ProcessHandle or neither (defaults to the current process).
         [Parameter(Mandatory=$false)]
-        $ProcessId,
+        [Nullable[Int64]]$ProcessHandle,
+
         [Parameter(Mandatory=$false)]
-        $ProcessHandle
+        [Nullable[Int64]]$TokenHandle,
+
+        [Parameter(Mandatory=$false)]
+        [String]$PrivilegeName,
+
+        [Parameter(Mandatory=$false)]
+        [Nullable[Int64]]$PrivilegeId
     )
-    SetProcessHandleAndId
-    # $ProcessHandle = ProcessHandleFromArgs @PSBoundParameters
 
-    [Int64]$TokenHandle = 0
-    try {
-        if (![NyxNUtil]::OpenProcessToken(
-            $ProcessHandle,
-            [NyxNUtil+TokenAccess]::TokenQuery,
-            [ref]$TokenHandle))
-        {
-            throw "Unable to OpenProcessToken"
-        }
-        $TokenHandle
-    }
-    finally {
-
-    }
-
-    return
-
-    $Enabled = $false;
-
-
-
-    if (![NyxNUtil]::PrivilegeCheck($ProcessHandle, $Privilege, [ref][bool]$Enabled)) {
-        Write-Error "Unable to check privilege [$Privilege]"
-    }
-    return $Enabled;
+    $Result = [NyxNUtil]::HasPrivilege($ProcessHandle, $TokenHandle, $PrivilegeName, $PrivilegeId)
+    return $Result
 }
 
 function Set-Privilege {

@@ -61,17 +61,14 @@ Description = 'A collection of scripts and modules in one parent module.'
 # Modules to import as nested modules of the module specified in RootModule/ModuleToProcess
 NestedModules = @(
     @{
-        ModuleName='.\NyxUtil\NyxUtil.psd1';
-        ModuleVersion='0.0.1';
+        ModuleName='.\NyxUtil\NyxUtil.psd1'
+        ModuleVersion='0.0.1'
         GUID='3f704cd0-f1eb-477e-9c52-bb3eaf64250d'
     }
 )
 
 # Functions to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no functions to export.
-FunctionsToExport = @(
-    'Test-Privilege',
-    'Set-Privilege'
-)
+FunctionsToExport = '*'
 
 # Cmdlets to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no cmdlets to export.
 CmdletsToExport = @()
